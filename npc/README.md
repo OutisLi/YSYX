@@ -20,6 +20,10 @@ Feel free to rename or delete files under `playground/` or use them as a referen
 
 First, install mill by referring to the documentation [here](https://com-lihaoyi.github.io/mill).
 
+```
+curl -L https://raw.githubusercontent.com/lefou/millw/0.4.11/millw > mill && chmod +x mill
+```
+
 To run all tests in this design (recommended for test-driven development):
 ```bash
 make test
