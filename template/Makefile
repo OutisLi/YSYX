@@ -33,7 +33,7 @@ NPC_EXEC := $(BIN)
 $(TOP_V): $(SCALA_FILE)
 	$(call git_commit, "generate verilog")
 	@mkdir -p $(@D)
-	mill $(TOP).runMain $(MAIN) --target-dir $(@D)
+	mill $(TOP).runMain $(MAIN) --target-dir $(@D) --throw-on-first-error --full-stacktrace
 
 test:
 	mill -i $(TOP).test
@@ -81,4 +81,4 @@ showwave:
 
 -include ../Makefile
 
-.PHONY: test verilog help reformat checkformat clean clean_mill clean_all sim run
+.PHONY: test verilog help reformat checkformat clean clean_mill clean_all sim run run_all showwave

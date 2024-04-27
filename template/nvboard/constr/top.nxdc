@@ -1,0 +1,8 @@
+top=top
+
+io_s (SW1, SW0)
+io_a_0 (SW3, SW2)
+io_a_1 (SW5, SW4)
+io_a_2 (SW7, SW6)
+io_a_3 (SW9, SW8)
+io_y (LD1, LD0)
