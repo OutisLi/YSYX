@@ -10,12 +10,21 @@ VerilatedVcdC *vcd = NULL;
 
 static Vtop *top;
 
-void step_and_dump_wave()
+void step_and_dump_wave(int n = 1)
 {
-    top->eval();
-    contextp->timeInc(1);
-    vcd->dump(contextp->time());
+    for (int i = 0; i < n; i++)
+    {
+        top->clock = 0;
+        top->eval();
+        contextp->timeInc(1);
+        vcd->dump(contextp->time());
+        top->clock = 1;
+        top->eval();
+        contextp->timeInc(1);
+        vcd->dump(contextp->time());
+    }
 }
+
 void sim_init(int argc, char **argv)
 {
     contextp = new VerilatedContext;
@@ -32,6 +41,9 @@ void sim_exit()
 {
     step_and_dump_wave();
     vcd->close();
+    delete top;
+    delete contextp;
+    delete vcd;
 }
 
 int main(int argc, char **argv)
