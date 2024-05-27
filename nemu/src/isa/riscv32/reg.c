@@ -24,6 +24,18 @@ const char *regs[] = {
 };
 
 void isa_reg_display() {
+  // display all registers with their names and values
+  extern CPU_state cpu;
+  for (int i = 0; i < 32; i++)
+  {
+    printf("%-3s: 0x%08x\t", regs[i], gpr(i));
+    i++;
+    printf("%-3s: 0x%08x\t", regs[i], gpr(i));
+    i++;
+    printf("%-3s: 0x%08x\t", regs[i], gpr(i));
+    i++;
+    printf("%-3s: 0x%08x\n", regs[i], gpr(i));
+  }
 }
 
 word_t isa_reg_str2val(const char *s, bool *success) {

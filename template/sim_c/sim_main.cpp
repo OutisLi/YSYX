@@ -75,8 +75,5 @@ int main(int argc, char **argv)
     step_and_dump_wave();
 
     sim_exit();
-    delete top;
-    delete contextp;
-    delete vcd;
     return 0;
 }
