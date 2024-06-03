@@ -24,14 +24,7 @@
 static char buf[65536] = {};            // 2^16 :2^x*10 + x < 65536 -> x <= 12
 static char code_buf[65536 + 128] = {}; // a little larger than `buf`
 static char *code_format = "#include <stdio.h>\n"
-                           "#include <stdlib.h>\n"
-                           "#include <signal.h>\n"
-                           "void sig_handler(int signal) {\n"
-                           "if (signal == SIGFPE)\n"
-                           "exit(1);\n"
-                           "}\n"
                            "int main() {\n"
-                           "  signal(SIGFPE, sig_handler);\n"
                            "  unsigned result = %s;\n"
                            "  printf(\"%%u\", result);\n"
                            "  return 0;\n"

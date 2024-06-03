@@ -74,6 +74,8 @@ static int cmd_info(char *args) {
   }
   if (strcmp(arg, "r") == 0) {
     isa_reg_display();
+  } else if (strcmp(arg, "w") == 0) {
+    wp_display();
   } else {
     printf("Unknown argument '%s'\n", arg);
   }
@@ -123,6 +125,29 @@ static int cmd_p(char *args) {
   return 0;
 }
 
+static int cmd_w(char *args) {
+  bool success = true;
+  word_t result = expr(args, &success);
+  if (success) {
+    wp_watch(args, result);
+  } else {
+    printf("Invalid expression\n");
+  }
+  return 0;
+}
+
+static int cmd_d(char *args) {
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL) {
+    printf("Invalid argument\n");
+    return 0;
+  }
+  int n;
+  sscanf(arg, "%d", &n);
+  wp_delete(n);
+  return 0;
+}
+
 static int cmd_help(char *args);
 
 static struct {
@@ -137,8 +162,8 @@ static struct {
     {"info", "Print program status", cmd_info},
     {"x", "Examine memory", cmd_x},
     {"p", "Print value of expression", cmd_p},
-    // {"w", "Set a watchpoint", cmd_w},
-    // {"d", "Delete a watchpoint", cmd_d},
+    {"w", "Set a watchpoint", cmd_w},
+    {"d", "Delete a watchpoint", cmd_d},
     // {"bt", "Print backtrace of all stack frames", cmd_bt},
     // {"cache", "Print cache status", cmd_cache},
     // {"tlb", "Print tlb status", cmd_tlb},
@@ -263,7 +288,7 @@ void init_sdb() {
   /* Compile the regular expressions. */
   init_regex();
 
-  test_expr();
+  // test_expr();
 
   /* Initialize the watchpoint pool. */
   init_wp_pool();

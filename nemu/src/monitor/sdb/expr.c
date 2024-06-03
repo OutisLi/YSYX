@@ -16,6 +16,7 @@
 #include "common.h"
 #include <debug.h>
 #include <isa.h>
+#include <memory/vaddr.h>
 
 /* We use the POSIX regex functions to process regular expressions.
  * Type 'man regex' for more information about POSIX regex functions.
@@ -25,39 +26,63 @@
 enum {
   TK_NOTYPE = 256,
   TK_EQ,
+  TK_NEQ,
+  TK_GT,
+  TK_LT,
+  TK_GE,
+  TK_LE,
   TK_NUM,
-
-  /* TODO: Add more token types
+  TK_POS,
+  TK_NEG,
+  TK_AND,
+  TK_OR,
   TK_REG,
-  TK_VAR, */
-
+  TK_DEREF, // pointer dereference
 };
 
 static struct rule {
   const char *regex;
   int token_type;
 } rules[] = {
-
-    /* TODO: Add more rules.
-     * Pay attention to the precedence level of different rules.
-     */
-
-    {" +", TK_NOTYPE},  // spaces
-    {"\\+", '+'},       // plus
-    {"==", TK_EQ},      // equal
-    {"[0-9]+", TK_NUM}, // number
-    {"\\-", '-'},       // minus
-    {"\\*", '*'},       // multiply
-    {"\\/", '/'},       // divide
-    {"\\(", '('},       // left bracket
-    {"\\)", ')'},       // right bracket
-                        // {"\\$[a-z]+", TK_REG}, // register
-                        // {"[a-zA-Z_]+", TK_VAR}, // variable
+    {" +", TK_NOTYPE},       // spaces
+    {"\\+", '+'},            // plus
+    {"==", TK_EQ},           // equal
+    {"(0x)?[0-9]+", TK_NUM}, // number
+    {"\\-", '-'},            // minus
+    {"\\*", '*'},            // multiply
+    {"\\/", '/'},            // divide
+    {"\\(", '('},            // left bracket
+    {"\\)", ')'},            // right bracket
+    {"<", TK_LT},            // less than
+    {">", TK_GT},            // greater than
+    {"<=", TK_LE},           // less than or equal to
+    {">=", TK_GE},           // greater than or equal to
+    {"!=", TK_NEQ},          // not equal to
+    {"&&", TK_AND},          // and
+    {"\\|\\|", TK_OR},       // or
+    {"\\$[a-z0-9]+", TK_REG},   // register
+                             // {"[a-zA-Z_]+", TK_VAR}, // variable
 };
+
+static int nonop[] = {TK_NUM, '(', TK_REG, ')'};
+static int hop[] = {TK_NEG, TK_POS, TK_DEREF}; // unit operator
+static int speop[] = {
+    TK_NUM, ')', TK_REG}; // special operator: +-* means label ifnot after these
 
 #define NR_REGEX ARRLEN(rules)
 
 static regex_t re[NR_REGEX] = {};
+
+#define TK_ISTYPE(type, types) tk_istype(type, types, ARRLEN(types))
+
+// cannot obtain the size of an array in a function
+static bool tk_istype(int type, int *types, int n) {
+  for (int i = 0; i < n; i++) {
+    if (type == types[i])
+      return true;
+  }
+  return false;
+}
 
 /* Rules are used for many times.
  * Therefore we compile them only once before any usage.
@@ -115,51 +140,36 @@ static bool make_token(char *e) {
 
         position += substr_len;
 
-        /* TODO: Now a new token is recognized with rules[i]. Add codes
-         * to record the token in the array `tokens'. For certain types
-         * of tokens, some extra actions should be performed.
-         */
+        if (rules[i].token_type == TK_NOTYPE)
+          break;
+        tokens[nr_token].type = rules[i].token_type;
 
         switch (rules[i].token_type) {
-        case TK_NOTYPE:
-          break;
         case TK_NUM:
-          tokens[nr_token].type = TK_NUM;
+        case TK_REG:
           strncpy(tokens[nr_token].str, substr_start, substr_len);
           tokens[nr_token].str[substr_len] = '\0';
-          nr_token++;
           break;
         case '+':
-          tokens[nr_token].type = '+';
-          nr_token++;
+          if (nr_token == 0 || !TK_ISTYPE(tokens[nr_token - 1].type, speop)) {
+            tokens[nr_token].type = TK_POS;
+            Log("change + to POS at position %d", position - 1);
+          }
           break;
         case '-':
-          tokens[nr_token].type = '-';
-          nr_token++;
+          if (nr_token == 0 || !TK_ISTYPE(tokens[nr_token - 1].type, speop)) {
+            tokens[nr_token].type = TK_NEG;
+            Log("change - to NEG at position %d", position - 1);
+          }
           break;
         case '*':
-          tokens[nr_token].type = '*';
-          nr_token++;
+          if (nr_token == 0 || !TK_ISTYPE(tokens[nr_token - 1].type, speop)) {
+            tokens[nr_token].type = TK_DEREF;
+            Log("change * to DEREF at position %d", position - 1);
+          }
           break;
-        case '/':
-          tokens[nr_token].type = '/';
-          nr_token++;
-          break;
-        case '(':
-          tokens[nr_token].type = '(';
-          nr_token++;
-          break;
-        case ')':
-          tokens[nr_token].type = ')';
-          nr_token++;
-          break;
-        case TK_EQ:
-          tokens[nr_token].type = TK_EQ;
-          nr_token++;
-          break;
-        default:
-          TODO();
         }
+        nr_token++;
         break;
       }
     }
@@ -194,24 +204,84 @@ static int cheak_parentheses(int p, int q) {
   return 2;
 }
 
+static word_t eval_single(int p, bool *status) {
+  switch (tokens[p].type) {
+  case TK_NUM:
+    if (strncmp(tokens[p].str, "0x", 2) == 0)
+      return strtol(tokens[p].str, NULL, 16);
+    else
+      return atoi(tokens[p].str);
+  case TK_REG:
+    return isa_reg_str2val(tokens[p].str, status);
+  default:
+    *status = false;
+    return 0;
+  }
+}
+
+static word_t cal_single(int op, word_t val, bool *status) {
+  switch (op) {
+  case TK_POS:
+    return val;
+  case TK_NEG:
+    return -val;
+  case TK_DEREF:
+    return vaddr_read(val, 4);
+  default:
+    *status = false;
+    return 0;
+  }
+}
+
+static word_t cal_two(word_t val1, int op, word_t val2, bool *status) {
+  switch (op) {
+  case '+':
+    return val1 + val2;
+  case '-':
+    return val1 - val2;
+  case '*':
+    return val1 * val2;
+  case '/':
+    if (val2 == 0) {
+      *status = false;
+      return 0;
+    }
+    return (sword_t)val1 / (sword_t)val2;
+  case TK_EQ:
+    return val1 == val2;
+  case TK_NEQ:
+    return val1 != val2;
+  case TK_GT:
+    return val1 > val2;
+  case TK_LT:
+    return val1 < val2;
+  case TK_GE:
+    return val1 >= val2;
+  case TK_LE:
+    return val1 <= val2;
+  case TK_AND:
+    return val1 && val2;
+  case TK_OR:
+    return val1 || val2;
+  default:
+    *status = false;
+    return 0;
+  }
+}
+
 static word_t eval(int p, int q, bool *status) {
   if (*status == false || (p > q)) {
     *status = false;
     return 0;
   }
   if (p == q) {
-    if (tokens[p].type == TK_NUM) {
-      *status = true;
-      return atoi(tokens[p].str);
-    } else {
-      *status = false;
-      return 0;
-    }
+    return eval_single(p, status);
   }
+
   int parentheses = cheak_parentheses(p, q);
   if (parentheses == 0) {
     *status = false;
-    printf("Invalid expression\n");
+    printf("Invalid parentheses\n");
     return 0;
   } else if (parentheses == 1) {
     return eval(p + 1, q - 1, status);
@@ -219,38 +289,56 @@ static word_t eval(int p, int q, bool *status) {
     int op = -1; // the position of dominant operator
     int cnt = 0;
     int index = 0;
-    int lowest_priority = 3;
+    int lowest_priority = 100;
     int *op_priority = (int *)calloc((q - p + 1), sizeof(int));
     int *op_position = (int *)calloc((q - p + 1), sizeof(int));
     for (int i = p; i <= q; i++) {
-      if (tokens[i].type == TK_NUM)
-        continue;
       if (tokens[i].type == '(') {
         cnt++;
         continue;
       }
       if (tokens[i].type == ')') {
+        if (cnt == 0) {
+          *status = false;
+          printf("Invalid parentheses\n");
+          return 0;
+        }
         cnt--;
         continue;
       }
+      if (TK_ISTYPE(tokens[i].type, nonop))
+        continue;
       if (cnt == 0) {
         op_position[index] = i;
-        if (tokens[i].type == '+' || tokens[i].type == '-') {
-          op_priority[index] = 1;
-          lowest_priority = lowest_priority < 1 ? lowest_priority : 1;
-        } else if (tokens[i].type == '*' || tokens[i].type == '/') {
+        if (tokens[i].type == '*' || tokens[i].type == '/') {
+          op_priority[index] = 6;
+          lowest_priority = lowest_priority < 6 ? lowest_priority : 6;
+        } else if (tokens[i].type == '+' || tokens[i].type == '-') {
+          op_priority[index] = 5;
+          lowest_priority = lowest_priority < 5 ? lowest_priority : 5;
+        } else if (tokens[i].type == TK_LT || tokens[i].type == TK_GT ||
+                   tokens[i].type == TK_LE || tokens[i].type == TK_GE) {
+          op_priority[index] = 4;
+          lowest_priority = lowest_priority < 4 ? lowest_priority : 4;
+        } else if (tokens[i].type == TK_EQ || tokens[i].type == TK_NEQ) {
+          op_priority[index] = 3;
+          lowest_priority = lowest_priority < 3 ? lowest_priority : 3;
+        } else if (tokens[i].type == TK_AND) {
           op_priority[index] = 2;
           lowest_priority = lowest_priority < 2 ? lowest_priority : 2;
-        } else {
-          op_priority[index] = 0;
-          lowest_priority = lowest_priority < 0 ? lowest_priority : 0;
+        } else if (tokens[i].type == TK_OR) {
+          op_priority[index] = 1;
+          lowest_priority = lowest_priority < 1 ? lowest_priority : 1;
+        } else if (TK_ISTYPE(tokens[i].type, hop)) {
+          op_priority[index] = 7;
+          lowest_priority = lowest_priority < 7 ? lowest_priority : 7;
         }
         index++;
       }
     }
     if (cnt != 0) {
       *status = false;
-      printf("Invalid expression\n");
+      printf("Invalid parentheses\n");
       return 0;
     }
     for (int i = 0; i <= q - p; i++) {
@@ -258,32 +346,28 @@ static word_t eval(int p, int q, bool *status) {
         op = op_position[i] > op ? op_position[i] : op;
       }
     }
+    if (op < 0 || op > q) {
+      *status = false;
+      printf("major op not found\n");
+      return 0;
+    }
     // free malloced memory
     free(op_priority);
     free(op_position);
-    word_t val1 = eval(p, op - 1, status);
-    if (*status == false)
+    bool statusL = true, statusR = true;
+    word_t val1 = eval(p, op - 1, &statusL);
+    word_t val2 = eval(op + 1, q, &statusR);
+    if (statusR == false) { // cannot 1+, but can +1
+      *status = false;
       return 0;
-    word_t val2 = eval(op + 1, q, status);
-    if (*status == false)
-      return 0;
-    switch (tokens[op].type) {
-    case '+':
-      return val1 + val2;
-    case '-':
-      return val1 - val2;
-    case '*':
-      return val1 * val2;
-    case '/':
-      if (val2 == 0) {
-        *status = false;
-        return 0;
-      }
-      return (sword_t)val1 / (sword_t)val2;
+    }
+    if (statusL) {
+      word_t result = cal_two(val1, tokens[op].type, val2, status);
+      return result;
+    } else {
+      return cal_single(tokens[op].type, val2, status);
     }
   }
-  *status = false;
-  return 0;
 }
 
 word_t expr(char *e, bool *success) {

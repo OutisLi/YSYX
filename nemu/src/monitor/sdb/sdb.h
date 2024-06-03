@@ -19,5 +19,9 @@
 #include <common.h>
 
 word_t expr(char *e, bool *success);
+void wp_display();
+void wp_watch(char *e, word_t value);
+void wp_delete(int n);
+void wp_check();
 
 #endif
