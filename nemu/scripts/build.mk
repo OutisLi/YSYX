@@ -45,7 +45,7 @@ $(OBJ_DIR)/%.o: %.cc
 
 # Some convenient rules
 
-.PHONY: app clean
+.PHONY: app clean count
 
 app: $(BINARY)
 
@@ -55,3 +55,8 @@ $(BINARY):: $(OBJS) $(ARCHIVES)
 
 clean:
 	-rm -rf $(BUILD_DIR)
+
+count:
+	@echo "Lines of code:"
+	@find . -type f \( -name "*.c" -o -name "*.h" \) -exec grep -v '^\s*$$' {} + | wc -l
+
